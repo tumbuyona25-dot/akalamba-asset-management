@@ -15,12 +15,13 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import AdminPanel from './pages/AdminPanel';
+import AdminLogin from './pages/AdminLogin';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'landing' | 'login' | 'register' | 'dashboard' | 'admin'>('landing');
+  const [view, setView] = useState<'landing' | 'login' | 'register' | 'dashboard' | 'admin' | 'adminLogin'>('landing');
 
   useEffect(() => {
     let profileUnsub: () => void = () => {};
@@ -67,12 +68,19 @@ export default function App() {
   // Simple Router based on state
   useEffect(() => {
     if (!loading) {
-      if (user && user.emailVerified) {
-        if (view === 'login' || view === 'register' || view === 'landing') {
+      const isAdminEmail = user?.email?.toLowerCase() === 'tumbuyona25@gmail.com' || user?.email?.toLowerCase() === 'tumbuyona25+admin@gmail.com';
+      
+      if (user) {
+        // If logged in and verified, redirect from public pages to dashboard
+        if (user.emailVerified && (view === 'login' || view === 'register' || view === 'landing')) {
           setView('dashboard');
         }
+        // If logged in but NOT verified, redirect from dashboard to login (Admins skip this)
+        if (!user.emailVerified && view === 'dashboard' && !isAdminEmail) {
+          setView('login');
+        }
       } else {
-        // If not logged in or not verified, only allow landing/login/register
+        // If not logged in at all, only allow landing/login/register/adminLogin
         if (view === 'dashboard' || view === 'admin') {
           setView('login');
         }
@@ -93,7 +101,19 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black text-white selection:bg-orange-500/30">
       {view === 'landing' && <Landing onLogin={() => navigate('login')} onRegister={() => navigate('register')} />}
-      {view === 'login' && <Login onBack={() => navigate('landing')} onRegister={() => navigate('register')} />}
+      {view === 'login' && (
+        <Login 
+          onBack={() => navigate('landing')} 
+          onRegister={() => navigate('register')} 
+          onAdminLogin={() => navigate('adminLogin')}
+        />
+      )}
+      {view === 'adminLogin' && (
+        <AdminLogin 
+          onBack={() => navigate('login')} 
+          onAdminSuccess={() => navigate('admin')}
+        />
+      )}
       {view === 'register' && <Register onBack={() => navigate('landing')} onLogin={() => navigate('login')} />}
       {view === 'dashboard' && (
         profile ? (

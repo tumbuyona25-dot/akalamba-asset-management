@@ -7,9 +7,10 @@ import { ArrowLeft, Loader2, LogIn } from 'lucide-react';
 interface LoginProps {
   onBack: () => void;
   onRegister: () => void;
+  onAdminLogin: () => void;
 }
 
-export default function Login({ onBack, onRegister }: LoginProps) {
+export default function Login({ onBack, onRegister, onAdminLogin }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -80,6 +81,15 @@ export default function Login({ onBack, onRegister }: LoginProps) {
         <p className="mt-8 text-center text-gray-500 text-sm">
           Don't have an account? <button onClick={onRegister} className="text-orange-500 font-bold hover:underline">Register</button>
         </p>
+
+        <div className="mt-12 pt-8 border-t border-white/5 text-center">
+          <button 
+            onClick={onAdminLogin}
+            className="text-[10px] text-gray-700 uppercase tracking-[0.2em] hover:text-orange-500/50 transition-colors font-mono"
+          >
+            Terminal Access: Admin Only
+          </button>
+        </div>
       </motion.div>
     </div>
   );

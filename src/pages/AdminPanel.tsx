@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
+import { signOut } from 'firebase/auth';
 import { 
   collection, query, orderBy, onSnapshot, doc, getDoc, 
   updateDoc, addDoc, serverTimestamp, increment, writeBatch 
@@ -28,17 +29,30 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   const [profitAmount, setProfitAmount] = useState('');
   const [postingProfit, setPostingProfit] = useState(false);
   
+  // Member Editor State
+  const [editingUserId, setEditingUserId] = useState('');
+  const [editBalance, setEditBalance] = useState('');
+  const [editVolume, setEditVolume] = useState('');
+  const [editProfit, setEditProfit] = useState('');
+  const [updatingUser, setUpdatingUser] = useState(false);
+  
   // News State
   const [newsTitle, setNewsTitle] = useState('');
   const [newsContent, setNewsContent] = useState('');
   const [postingNews, setPostingNews] = useState(false);
 
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     const usersUnsub = onSnapshot(collection(db, 'users'), (snap) => {
       setUsers(snap.docs.map(d => ({ ...d.data() } as UserProfile)));
       setLoading(false);
+      setError(null);
     }, (err) => {
       console.error('Admin Users sub error:', err);
+      if (err.message.includes('permission')) {
+        setError('Super Admin privileges not recognized. Please check your credentials or security rules.');
+      }
       setLoading(false);
     });
 
@@ -189,19 +203,72 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     }
   };
 
+  const handleUpdateMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUserId) return;
+    setUpdatingUser(true);
+    try {
+      await updateDoc(doc(db, 'users', editingUserId), {
+        balance: parseFloat(editBalance) || 0,
+        teamVolume: parseFloat(editVolume) || 0,
+        totalProfit: parseFloat(editProfit) || 0,
+      });
+      alert('Member data updated successfully!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${editingUserId}`);
+    } finally {
+      setUpdatingUser(false);
+    }
+  };
+
+  const selectUserForEdit = (userId: string) => {
+    const user = users.find(u => u.uid === userId);
+    if (user) {
+      setEditingUserId(userId);
+      setEditBalance(user.balance.toString());
+      setEditVolume(user.teamVolume.toString());
+      setEditProfit((user.totalProfit || 0).toString());
+    }
+  };
+
   if (loading) return <div className="p-12 text-center text-gray-500 font-sans">Accessing Akalamba Records...</div>;
 
   return (
     <div className="p-6 md:p-12 bg-black min-h-screen text-white space-y-12 pb-32">
       <header className="flex items-center justify-between border-b border-white/5 pb-6">
         <div className="flex items-center gap-4">
-          <button onClick={onBack} className="p-2 bg-white/5 rounded-lg hover:bg-white/10 transition-all"><ArrowLeft size={20} /></button>
+          <button onClick={onBack} className="p-2 bg-white/5 rounded-lg hover:bg-white/10 transition-all" title="Back to Dashboard"><ArrowLeft size={20} /></button>
           <h1 className="text-3xl font-bold tracking-tight">Admin Backoffice</h1>
         </div>
-        <div className="bg-orange-600/20 text-orange-500 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border border-orange-600/30">
-          Super Admin Privileges
+        <div className="flex items-center gap-4">
+          <div className="hidden md:block bg-orange-600/20 text-orange-500 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border border-orange-600/30">
+            Super Admin Privileges
+          </div>
+          <button 
+            onClick={() => signOut(auth)}
+            className="px-4 py-2 bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-500 rounded-lg text-xs font-bold transition-all border border-white/5"
+          >
+            Terminal Logout
+          </button>
         </div>
       </header>
+      
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 p-6 rounded-2xl text-red-500 text-center space-y-2">
+          <p className="font-bold mb-1">Access Restricted</p>
+          <p className="text-sm">{error}</p>
+          <div className="text-[10px] text-gray-500 font-mono mt-4">
+            Authenticated as: {auth.currentUser?.email || 'Unknown'} | 
+            UID: {auth.currentUser?.uid || 'None'}
+          </div>
+          <button 
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-red-500 text-white rounded-lg text-xs font-bold hover:bg-red-600 transition-all"
+          >
+            Force Sync Terminal
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
         {/* Profit Entry */}
@@ -235,6 +302,49 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
               className="w-full bg-green-600 py-4 rounded-xl font-bold hover:bg-green-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {postingProfit ? <Loader2 className="animate-spin" /> : 'Distribute Profit & Commissions'}
+            </button>
+          </form>
+        </section>
+
+        {/* Member Data Editor */}
+        <section className="bg-[#0A0A0A] border border-white/5 p-8 rounded-2xl shadow-xl">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-yellow-500"><Search size={20} /> Advanced Member Editor</h2>
+          <form onSubmit={handleUpdateMember} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Select Member to Modify</label>
+              <select 
+                value={editingUserId} onChange={e => selectUserForEdit(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-yellow-500 appearance-none text-sm text-white"
+              >
+                <option value="" className="bg-[#0A0A0A]">Select a member...</option>
+                {users.map(u => (
+                  <option key={u.uid} value={u.uid} className="bg-[#0A0A0A]">
+                    {u.displayName} (Bal: ${u.balance.toFixed(2)})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {editingUserId && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/5">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-600 mb-1">Balance ($)</label>
+                  <input type="number" step="0.01" value={editBalance} onChange={e => setEditBalance(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-yellow-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-600 mb-1">Total Profit ($)</label>
+                  <input type="number" step="0.01" value={editProfit} onChange={e => setEditProfit(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-yellow-500 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-gray-600 mb-1">Team Volume ($)</label>
+                  <input type="number" step="1" value={editVolume} onChange={e => setEditVolume(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 outline-none focus:border-yellow-500 text-sm" />
+                </div>
+              </div>
+            )}
+            <button 
+              type="submit" disabled={updatingUser || !editingUserId}
+              className="w-full bg-yellow-600/20 text-yellow-500 border border-yellow-600/30 py-3 rounded-xl font-bold hover:bg-yellow-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {updatingUser ? <Loader2 className="animate-spin text-sm" /> : 'Apply Manual Changes'}
             </button>
           </form>
         </section>
