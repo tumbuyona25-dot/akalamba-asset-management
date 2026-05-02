@@ -8,9 +8,8 @@ service cloud.firestore {
 
     // --- Helpers ---
     function isSignedIn() { return request.auth != null; }
-    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
     
-    // Super Admin logic - Explicitly allowing the provided UID and Email
+    // Super Admin logic
     function isAdmin() { 
       return isSignedIn() && (
         (request.auth.token.email != null && request.auth.token.email.lower() == 'tumbuyona25@gmail.com') ||
@@ -23,69 +22,62 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
 
-    // Broad pattern for Super Admins - MUST BE FIRST OR EARLY
-    match /{allDocs=**} {
-      allow read, write: if isAdmin();
-    }
-
     // --- User Profile Rules ---
     match /users/{userId} {
-      // Allow referral check (limit 1)
-      allow list: if (request.query.limit != null && request.query.limit <= 1);
-      allow get, update: if isOwner(userId);
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && request.query.limit <= 1);
       allow create: if isSignedIn() && request.auth.uid == userId;
-    }
-
-    // --- Team Volumes ---
-    match /teamVolumes/{userId} {
-      allow read: if isOwner(userId) || (isSignedIn() && exists(/databases/$(database)/documents/teamVolumes/$(userId)) && request.auth.uid in get(/databases/$(database)/documents/teamVolumes/$(userId)).data.upliners);
-    }
-
-    // --- System Rules ---
-    match /systemRules/{docId} {
-      allow read: if true;
-    }
-
-    // --- Leadership Ranks ---
-    match /leadership/{docId} {
-      allow read: if isSignedIn();
+      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow delete: if isAdmin();
     }
 
     // --- Profit Entry Rules ---
     match /profits/{profitId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
     }
 
     // --- Commissions Rules ---
     match /commissions/{commId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin();
     }
 
     // --- Withdrawal Rules ---
     match /withdrawals/{withdrawalId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && isOwner(incoming().userId);
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if isAdmin();
     }
 
     // --- News Rules ---
     match /news/{newsId} {
       allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     // --- Support Messages Rules ---
     match /support_messages/{messageId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && (isAdmin() || incoming().userId == request.auth.uid);
+      allow update, delete: if isAdmin();
     }
 
     // --- Settings Rules ---
     match /settings/{docId} {
       allow read: if true;
+      allow write: if isAdmin();
     }
     
     // --- Admins Rules ---
     match /admins/{adminId} {
       allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    
+    // Catch-all bypass for admin for other potential collections
+    match /{allDocs=**} {
+      allow read, write: if isAdmin();
     }
   }
 }

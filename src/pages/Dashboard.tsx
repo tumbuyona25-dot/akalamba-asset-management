@@ -205,15 +205,16 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
     try {
       await addDoc(collection(db, 'support_messages'), {
         userId: user.uid,
-        userName: profile.displayName,
-        userEmail: profile.email,
+        userName: profile?.displayName || user.email?.split('@')[0] || 'Member',
+        userEmail: profile?.email || user.email || 'unknown',
         message: newMessage,
         isAdmin: false,
         createdAt: serverTimestamp()
       });
       setNewMessage('');
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, 'support_messages');
+      console.error('Send message error:', err);
+      alert('Failed to send message. Please try again.');
     } finally {
       setSendingMessage(false);
     }

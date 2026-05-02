@@ -94,10 +94,9 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     });
 
     const withdrawalsUnsub = onSnapshot(
-      collection(db, 'withdrawals'),
+      query(collection(db, 'withdrawals'), orderBy('createdAt', 'desc')),
       (snap) => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Withdrawal));
-        setWithdrawals(docs.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0)));
+        setWithdrawals(snap.docs.map(d => ({ id: d.id, ...d.data() } as Withdrawal)));
       },
       (err) => console.error('Admin Withdrawals sub error:', err)
     );
@@ -115,7 +114,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
       withdrawalsUnsub();
       supportUnsub();
     };
-  }, []);
+  }, [isAdminLocal, isLoadingAdmin]);
 
   const handlePostProfit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -629,6 +628,29 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
               )}
             </div>
           </div>
+        </section>
+
+        {/* News & Broadcast */}
+        <section className="bg-[#0A0A0A] border border-white/5 p-8 rounded-2xl shadow-xl">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-blue-400"><Newspaper size={18} /> Broadcast Platform News</h2>
+          <form onSubmit={handlePostNews} className="space-y-4">
+            <input 
+              type="text" required value={newsTitle} onChange={e => setNewsTitle(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-blue-500"
+              placeholder="Headline..."
+            />
+            <textarea 
+              required value={newsContent} onChange={e => setNewsContent(e.target.value)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-blue-500 min-h-[100px]"
+              placeholder="Content..."
+            />
+            <button 
+              type="submit" disabled={postingNews}
+              className="w-full bg-blue-600 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <Send size={18} /> Broadcast
+            </button>
+          </form>
         </section>
 
         {/* Members Overview */}
