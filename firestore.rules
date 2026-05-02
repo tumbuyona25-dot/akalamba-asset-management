@@ -18,17 +18,15 @@ service cloud.firestore {
       ); 
     }
 
-    match /{document=**} {
-      allow read, write: if isAdmin();
-    }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
 
     // --- User Profile Rules ---
     match /users/{userId} {
-      allow get: if isSignedIn();
-      allow list: if isAdmin() || (request.query.limit == 1);
+      // Allow anybody to check if a referral code exists (used during registration)
+      allow list: if isAdmin() || request.query.limit == 1;
       
+      allow get: if isSignedIn() && (isOwner(userId) || isAdmin());
       allow create: if isSignedIn() && isOwner(userId);
       allow update: if isSignedIn() && (isOwner(userId) || isAdmin());
     }
