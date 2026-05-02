@@ -26,7 +26,7 @@ export default function AdminLogin({ onBack, onAdminSuccess }: AdminLoginProps) 
       const user = userCredential.user;
 
       // Verify admin status
-      const isAdminEmail = ['tumbuyona25+admin@gmail.com', 'tumbuyona25@gmail.com'].includes((user.email || '').toLowerCase());
+      const isAdminEmail = ['tumbuyona25+admin@gmail.com', 'tumbuyona25@gmail.com'].includes((user.email || '').toLowerCase()) || user.uid === 'njO30nloO9c4Qq9fZRTfodj2afE3';
       
       let isAdminDoc = false;
       try {

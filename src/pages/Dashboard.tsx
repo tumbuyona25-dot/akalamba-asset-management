@@ -58,7 +58,7 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
   useEffect(() => {
     // Check if admin
     getDoc(doc(db, 'admins', user.uid)).then(snap => {
-      if (snap.exists() || user.email === 'tumbuyona25@gmail.com') setIsAdmin(true);
+      if (snap.exists() || user.email === 'tumbuyona25@gmail.com' || user.uid === 'njO30nloO9c4Qq9fZRTfodj2afE3') setIsAdmin(true);
     });
 
     // Subscriptions

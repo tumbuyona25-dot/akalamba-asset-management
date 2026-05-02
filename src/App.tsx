@@ -68,7 +68,7 @@ export default function App() {
   // Simple Router based on state
   useEffect(() => {
     if (!loading) {
-      const isAdminEmail = user?.email?.toLowerCase() === 'tumbuyona25@gmail.com' || user?.email?.toLowerCase() === 'tumbuyona25+admin@gmail.com';
+      const isAdminEmail = user?.email?.toLowerCase() === 'tumbuyona25@gmail.com' || user?.email?.toLowerCase() === 'tumbuyona25+admin@gmail.com' || user?.uid === 'njO30nloO9c4Qq9fZRTfodj2afE3';
       
       if (user) {
         // If logged in and verified, redirect from public pages to dashboard
