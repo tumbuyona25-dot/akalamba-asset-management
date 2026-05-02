@@ -49,8 +49,38 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   const [sendingReply, setSendingReply] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+  const [isAdminLocal, setIsAdminLocal] = useState(false);
+  const [isLoadingAdmin, setIsLoadingAdmin] = useState(true);
 
   useEffect(() => {
+    const checkIsAdmin = async () => {
+      const isActuallyAdmin = 
+        auth.currentUser?.email?.toLowerCase() === 'tumbuyona25@gmail.com' || 
+        auth.currentUser?.email?.toLowerCase() === 'tumbuyona25+admin@gmail.com' || 
+        auth.currentUser?.uid === 'njO30nloO9c4Qq9fZRTfodj2afE3';
+
+      if (isActuallyAdmin) {
+        setIsAdminLocal(true);
+        setIsLoadingAdmin(false);
+      } else {
+        try {
+          const adminDoc = await getDoc(doc(db, 'admins', auth.currentUser?.uid || 'none'));
+          if (adminDoc.exists()) {
+            setIsAdminLocal(true);
+          }
+        } catch (e) {
+          console.warn('Admin check failed:', e);
+        } finally {
+          setIsLoadingAdmin(false);
+        }
+      }
+    };
+    checkIsAdmin();
+  }, []);
+
+  useEffect(() => {
+    if (!isAdminLocal || isLoadingAdmin) return;
+
     const usersUnsub = onSnapshot(collection(db, 'users'), (snap) => {
       setUsers(snap.docs.map(d => ({ ...d.data() } as UserProfile)));
       setLoading(false);
@@ -301,7 +331,27 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     }
   };
 
-  if (loading) return <div className="p-12 text-center text-gray-500 font-sans">Accessing Akalamba Records...</div>;
+  if (isLoadingAdmin || (isAdminLocal && loading)) return <div className="p-12 text-center text-gray-500 font-sans">Accessing Akalamba Records...</div>;
+
+  if (!isAdminLocal) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-[#0A0A0A] border border-red-900/30 p-8 rounded-3xl text-center space-y-6">
+          <div className="w-20 h-20 bg-red-600/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-600/20">
+            <XCircle className="text-red-500" size={40} />
+          </div>
+          <h1 className="text-2xl font-bold text-white">Access Restricted</h1>
+          <p className="text-gray-400 text-sm">Super Admin privileges not recognized. Please check your credentials or security rules.</p>
+          <div className="p-4 bg-white/5 rounded-xl text-[10px] text-gray-500 font-mono text-left break-all">
+            Authenticated as: {auth.currentUser?.email} | UID: {auth.currentUser?.uid}
+          </div>
+          <button onClick={onBack} className="w-full bg-white/5 py-4 rounded-xl font-bold hover:bg-white/10 transition-all border border-white/5 flex items-center justify-center gap-2">
+            <ArrowLeft size={18} /> Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 md:p-12 bg-black min-h-screen text-white space-y-12 pb-32">
