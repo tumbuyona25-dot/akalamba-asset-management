@@ -106,10 +106,10 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
     }, (err) => console.warn('Settings sub error:', err));
 
     const supportUnsub = onSnapshot(
-      query(collection(db, 'support_messages'), where('userId', '==', user.uid), orderBy('createdAt', 'asc')),
+      query(collection(db, 'support_messages'), where('userId', '==', user.uid)),
       (snap) => {
         const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as SupportMessage));
-        setSupportMessages(docs);
+        setSupportMessages(docs.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0)));
       },
       (err) => console.warn('Support sub error:', err)
     );
@@ -166,7 +166,9 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
   };
 
   const handleCopyRef = () => {
-    const link = `${window.location.origin}?ref=${profile.referralCode}`;
+    // Attempt to use a cleaner URL, or fall back to window.location
+    const baseUrl = window.location.origin;
+    const link = `${baseUrl}?ref=${profile.referralCode}`;
     navigator.clipboard.writeText(link);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);

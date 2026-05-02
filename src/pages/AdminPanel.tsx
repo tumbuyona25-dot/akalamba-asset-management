@@ -53,29 +53,40 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   const [isLoadingAdmin, setIsLoadingAdmin] = useState(true);
 
   useEffect(() => {
-    const checkIsAdmin = async () => {
-      const isActuallyAdmin = 
-        auth.currentUser?.email?.toLowerCase() === 'tumbuyona25@gmail.com' || 
-        auth.currentUser?.email?.toLowerCase() === 'tumbuyona25+admin@gmail.com' || 
-        auth.currentUser?.uid === 'njO30nloO9c4Qq9fZRTfodj2afE3';
-
-      if (isActuallyAdmin) {
-        setIsAdminLocal(true);
+    // We need to wait for auth to initialize
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (!user) {
         setIsLoadingAdmin(false);
-      } else {
-        try {
-          const adminDoc = await getDoc(doc(db, 'admins', auth.currentUser?.uid || 'none'));
-          if (adminDoc.exists()) {
-            setIsAdminLocal(true);
-          }
-        } catch (e) {
-          console.warn('Admin check failed:', e);
-        } finally {
-          setIsLoadingAdmin(false);
-        }
+        setIsAdminLocal(false);
+        return;
       }
-    };
-    checkIsAdmin();
+
+      const checkIsAdmin = async () => {
+        const isActuallyAdmin = 
+          user.email?.toLowerCase() === 'tumbuyona25@gmail.com' || 
+          user.email?.toLowerCase() === 'tumbuyona25+admin@gmail.com' || 
+          user.uid === 'njO30nloO9c4Qq9fZRTfodj2afE3';
+
+        if (isActuallyAdmin) {
+          setIsAdminLocal(true);
+          setIsLoadingAdmin(false);
+        } else {
+          try {
+            const adminDoc = await getDoc(doc(db, 'admins', user.uid));
+            if (adminDoc.exists()) {
+              setIsAdminLocal(true);
+            }
+          } catch (e) {
+            console.warn('Admin check failed:', e);
+          } finally {
+            setIsLoadingAdmin(false);
+          }
+        }
+      };
+      checkIsAdmin();
+    });
+
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -330,8 +341,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     }
   };
 
-  if (isLoadingAdmin || (isAdminLocal && loading)) return <div className="p-12 text-center text-gray-500 font-sans">Accessing Akalamba Records...</div>;
-
+  if (isLoadingAdmin) return <div className="p-12 text-center text-gray-500 font-sans">Verifying Security Credentials...</div>;
   if (!isAdminLocal) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-6">
@@ -351,6 +361,15 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
       </div>
     );
   }
+
+  if (loading) return (
+    <div className="min-h-screen bg-black flex items-center justify-center p-12 text-center">
+      <div className="space-y-4">
+        <Loader2 className="animate-spin text-orange-500 mx-auto" size={40} />
+        <p className="text-gray-500 font-sans">Accessing Akalamba Records...</p>
+      </div>
+    </div>
+  );
 
   return (
     <div className="p-6 md:p-12 bg-black min-h-screen text-white space-y-12 pb-32">
@@ -613,7 +632,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                       className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-pink-500 text-sm"
                     />
                     <button 
-                      disabled={sendingReply || !adminReply.trim()}
+                      type="submit" disabled={sendingReply || !adminReply.trim()}
                       className="bg-pink-600 px-6 rounded-xl hover:bg-pink-500 transition-all disabled:opacity-50 font-bold"
                     >
                       {sendingReply ? <Loader2 className="animate-spin" size={18} /> : 'Reply'}
@@ -628,29 +647,6 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
               )}
             </div>
           </div>
-        </section>
-
-        {/* News & Broadcast */}
-        <section className="bg-[#0A0A0A] border border-white/5 p-8 rounded-2xl shadow-xl">
-          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-blue-400"><Newspaper size={18} /> Broadcast Platform News</h2>
-          <form onSubmit={handlePostNews} className="space-y-4">
-            <input 
-              type="text" required value={newsTitle} onChange={e => setNewsTitle(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-blue-500"
-              placeholder="Headline..."
-            />
-            <textarea 
-              required value={newsContent} onChange={e => setNewsContent(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-blue-500 min-h-[100px]"
-              placeholder="Content..."
-            />
-            <button 
-              type="submit" disabled={postingNews}
-              className="w-full bg-blue-600 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <Send size={18} /> Broadcast
-            </button>
-          </form>
         </section>
 
         {/* Members Overview */}

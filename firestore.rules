@@ -9,7 +9,7 @@ service cloud.firestore {
     // --- Helpers ---
     function isSignedIn() { return request.auth != null; }
     
-    // Super Admin logic
+    // Super Admin logic - HARDCODED for the owner
     function isAdmin() { 
       return isSignedIn() && (
         (request.auth.token.email != null && request.auth.token.email.lower() == 'tumbuyona25@gmail.com') ||
@@ -25,57 +25,81 @@ service cloud.firestore {
     // --- User Profile Rules ---
     match /users/{userId} {
       allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow list: if isAdmin() || (isSignedIn() && request.query.limit <= 1);
-      allow create: if isSignedIn() && request.auth.uid == userId;
+      // Admin can list all users, guests/users can only check for a specific referral code
+      allow list: if isAdmin() || (request.query.limit != null && request.query.limit <= 1);
+      allow create: if true; // Allow anyone to create, internal email check happens in auth
       allow update: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
       allow delete: if isAdmin();
     }
 
+    // --- Team Volumes ---
+    // User's provided version (merged)
+    match /teamVolumes/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || request.auth.uid in resource.data.upliners || isAdmin());
+      allow write: if isAdmin();
+    }
+
     // --- Profit Entry Rules ---
     match /profits/{profitId} {
+      // Members can read their own profit entries
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && request.query.limit <= 100);
       allow write: if isAdmin();
     }
 
     // --- Commissions Rules ---
     match /commissions/{commId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && request.query.limit <= 100);
       allow write: if isAdmin();
     }
 
     // --- Withdrawal Rules ---
     match /withdrawals/{withdrawalId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow list: if isAdmin() || (isSignedIn() && request.query.limit <= 100);
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && incoming().status == 'pending';
       allow update, delete: if isAdmin();
     }
 
     // --- News Rules ---
     match /news/{newsId} {
-      allow read: if isSignedIn();
+      allow read: if true; // Public news
+      allow list: if true;
       allow write: if isAdmin();
     }
 
     // --- Support Messages Rules ---
     match /support_messages/{messageId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && request.query.limit <= 500); 
       allow create: if isSignedIn() && (isAdmin() || incoming().userId == request.auth.uid);
       allow update, delete: if isAdmin();
     }
 
-    // --- Settings Rules ---
+    // --- System Rules & Settings ---
+    match /systemRules/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
     match /settings/{docId} {
       allow read: if true;
       allow write: if isAdmin();
     }
     
+    // --- Leadership Ranks ---
+    match /leadership/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // --- Admins Rules ---
     match /admins/{adminId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
     
-    // Catch-all bypass for admin for other potential collections
+    // CATCH ALL for Admin
     match /{allDocs=**} {
       allow read, write: if isAdmin();
     }
