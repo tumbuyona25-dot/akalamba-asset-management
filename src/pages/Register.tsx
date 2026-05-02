@@ -35,16 +35,25 @@ export default function Register({ onBack, onLogin }: RegisterProps) {
       // 1. Validate referral code if provided
       let referrerId = null;
       if (refCode) {
-        const q = query(
-          collection(db, 'users'), 
-          where('referralCode', '==', refCode.toUpperCase()),
-          limit(1)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          referrerId = snap.docs[0].id;
-        } else {
-          throw new Error('Invalid referral code');
+        try {
+          const q = query(
+            collection(db, 'users'), 
+            where('referralCode', '==', refCode.toUpperCase()),
+            limit(1)
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            referrerId = snap.docs[0].id;
+          } else {
+            throw new Error('Invalid referral code');
+          }
+        } catch (err: any) {
+          console.error('Referral check error details:', JSON.stringify({
+            error: err.message,
+            code: err.code,
+            auth: auth.currentUser?.uid || 'none'
+          }));
+          throw err;
         }
       }
 
@@ -57,19 +66,29 @@ export default function Register({ onBack, onLogin }: RegisterProps) {
       // 3. Create Profile in Firestore
       const myRefCode = Math.random().toString(36).substring(2, 8).toUpperCase();
       
-      await setDoc(doc(db, 'users', user.uid), {
-        uid: user.uid,
-        email,
-        displayName: name,
-        referralCode: myRefCode,
-        referrerId: referrerId,
-        mt5Login: '',
-        balance: 0,
-        totalProfit: 0,
-        teamVolume: 0,
-        rank: UserRank.BASIC,
-        createdAt: serverTimestamp()
-      });
+      try {
+        await setDoc(doc(db, 'users', user.uid), {
+          uid: user.uid,
+          email,
+          displayName: name,
+          referralCode: myRefCode,
+          referrerId: referrerId,
+          mt5Login: '',
+          balance: 0,
+          totalProfit: 0,
+          teamVolume: 0,
+          rank: UserRank.BASIC,
+          createdAt: serverTimestamp()
+        });
+      } catch (err: any) {
+         console.error('Profile creation error details:', JSON.stringify({
+            error: err.message,
+            code: err.code,
+            auth: auth.currentUser?.uid || 'none',
+            uid: user.uid
+          }));
+          throw err;
+      }
 
       // 4. Send verification email
       await sendEmailVerification(user);
@@ -79,8 +98,11 @@ export default function Register({ onBack, onLogin }: RegisterProps) {
       
       setVerificationSent(true);
     } catch (err: any) {
+      console.error('Registration Main Error:', err);
       if (err.code === 'auth/email-already-in-use') {
         setError('user already exist. Please sign in.');
+      } else if (err.message.includes('permissions')) {
+        setError('Permissions error during registration. Please try again or contact support.');
       } else {
         setError(err.message);
       }

@@ -23,12 +23,17 @@ service cloud.firestore {
 
     // --- User Profile Rules ---
     match /users/{userId} {
-      // Allow anybody to check if a referral code exists (used during registration)
-      allow list: if isAdmin() || request.query.limit == 1;
+      // Allow referral check (limit 1) or admin list
+      allow list: if (request.query.limit != null && request.query.limit <= 1) || isAdmin();
       
-      allow get: if isSignedIn() && (isOwner(userId) || isAdmin());
-      allow create: if isSignedIn() && isOwner(userId);
-      allow update: if isSignedIn() && (isOwner(userId) || isAdmin());
+      // Allow getting own profile or admin
+      allow get: if isSignedIn(); 
+      
+      // Allow creating own profile
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      
+      // Allow updating own profile or admin
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
     }
 
     // --- Profit Entry Rules ---
@@ -52,8 +57,15 @@ service cloud.firestore {
 
     // --- News Rules ---
     match /news/{newsId} {
-      allow read: if true;
+      allow read: if isSignedIn(); // Logged in users can see news
       allow write: if isAdmin();
+    }
+
+    // --- Support Messages Rules ---
+    match /support_messages/{messageId} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && (isAdmin() || request.resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin();
     }
 
     // --- Settings Rules ---

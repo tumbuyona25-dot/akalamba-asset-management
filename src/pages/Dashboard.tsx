@@ -7,7 +7,7 @@ import {
 } from 'firebase/firestore';
 import { 
   UserProfile, ProfitEntry, Commission, Withdrawal, 
-  NewsItem, OperationType, SystemSettings, UserRank 
+  NewsItem, OperationType, SystemSettings, UserRank, SupportMessage 
 } from '../types';
 import { handleFirestoreError } from '../lib/firestore-utils';
 import { motion } from 'motion/react';
@@ -44,6 +44,9 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
+  const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawAddress, setWithdrawAddress] = useState('');
@@ -89,7 +92,7 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
       (err) => console.warn('Withdrawals sub error:', err)
     );
 
-    const newsUnsub = onSnapshot(
+  const newsUnsub = onSnapshot(
       query(collection(db, 'news'), limit(5)),
       (snap) => {
         const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as NewsItem));
@@ -102,12 +105,22 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
       if (snap.exists()) setSettings(snap.data() as SystemSettings);
     }, (err) => console.warn('Settings sub error:', err));
 
+    const supportUnsub = onSnapshot(
+      query(collection(db, 'support_messages'), where('userId', '==', user.uid), orderBy('createdAt', 'asc')),
+      (snap) => {
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as SupportMessage));
+        setSupportMessages(docs);
+      },
+      (err) => console.warn('Support sub error:', err)
+    );
+
     return () => {
       profitsUnsub();
       commissionsUnsub();
       withdrawalsUnsub();
       newsUnsub();
       settingsUnsub();
+      supportUnsub();
     };
   }, [user.uid, user.email]);
 
@@ -182,6 +195,27 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
       handleFirestoreError(err, OperationType.CREATE, 'withdrawals');
     } finally {
       setRequestingWithdrawal(false);
+    }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim()) return;
+    setSendingMessage(true);
+    try {
+      await addDoc(collection(db, 'support_messages'), {
+        userId: user.uid,
+        userName: profile.displayName,
+        userEmail: profile.email,
+        message: newMessage,
+        isAdmin: false,
+        createdAt: serverTimestamp()
+      });
+      setNewMessage('');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'support_messages');
+    } finally {
+      setSendingMessage(false);
     }
   };
 
@@ -342,12 +376,12 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
                   <h3 className="text-xl font-bold mb-4 text-blue-400 flex items-center gap-2"><ExternalLink size={24} /> Recommended Broker</h3>
                   <p className="text-gray-400 text-sm mb-6 font-light">Join our official partner broker to ensure seamless MT5 synchronization and lower spreads.</p>
                   <a 
-                    href={settings?.ibLink || '#'} 
+                    href="https://fusionmarkets.com/?refcode=108821" 
                     target="_blank" 
                     rel="noreferrer"
                     className="w-full bg-blue-600 py-3 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20"
                   >
-                    Register with Broker <ExternalLink size={18} />
+                    Register with Fusion Markets <ExternalLink size={18} />
                   </a>
                 </div>
               </div>
@@ -578,19 +612,58 @@ export default function Dashboard({ user, profile, onLogout, onAdmin }: Dashboar
           </button>
         </div>
 
-        {/* Support Link Footer */}
-        <div className="p-6 md:px-12 text-center text-gray-600 text-xs mt-12 bg-white/5 py-12 space-y-6">
-          <div className="max-w-2xl mx-auto backdrop-blur-sm bg-black/40 p-6 rounded-2xl border border-white/5">
-            <h4 className="text-gray-400 font-bold mb-4 uppercase tracking-widest">Need Support?</h4>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <a href={settings?.supportLink || '#'} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 bg-white/5 px-6 py-3 rounded-xl hover:bg-white/10 transition-all border border-white/10">
-                <Info size={16} /> FAQ Center
-              </a>
-              <a href={settings?.supportLink || '#'} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 bg-green-600/10 text-green-500 px-6 py-3 rounded-xl hover:bg-green-600/20 transition-all border border-green-600/20">
-                <MessageSquare size={16} /> Live Support
-              </a>
+        {/* Support System */}
+        <div className="p-6 md:px-12 space-y-8">
+          <div className="bg-[#0A0A0A] border border-white/5 p-8 rounded-2xl">
+            <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-green-500"><MessageSquare size={20} /> Customer Support Terminal</h3>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <div className="bg-white/5 rounded-xl border border-white/5 h-[300px] overflow-y-auto p-4 flex flex-col gap-3">
+                  {supportMessages.map((msg, i) => (
+                    <div key={i} className={`max-w-[80%] p-3 rounded-xl text-xs ${msg.isAdmin ? 'bg-blue-600/20 text-blue-300 self-start border border-blue-600/20' : 'bg-orange-600/20 text-orange-300 self-end border border-orange-600/20'}`}>
+                      <p className="font-bold mb-1">{msg.isAdmin ? 'Support Agent' : 'You'}</p>
+                      <p>{msg.message}</p>
+                      <p className="text-[8px] text-gray-500 mt-1 opacity-50">{msg.createdAt instanceof Date ? msg.createdAt.toLocaleString() : msg.createdAt?.toDate?.().toLocaleString() || 'Just now'}</p>
+                    </div>
+                  ))}
+                  {supportMessages.length === 0 && <div className="text-gray-600 text-center mt-20 italic">No messages yet. Send your query below.</div>}
+                </div>
+
+                <form onSubmit={handleSendMessage} className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={newMessage} 
+                    onChange={e => setNewMessage(e.target.value)}
+                    placeholder="Type your message to support..."
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-orange-500 text-sm"
+                  />
+                  <button 
+                    disabled={sendingMessage || !newMessage.trim()}
+                    className="bg-orange-600 p-3 rounded-xl hover:bg-orange-500 transition-all disabled:opacity-50"
+                  >
+                    {sendingMessage ? <Loader2 className="animate-spin" size={18} /> : <Send size={18} />}
+                  </button>
+                </form>
+              </div>
+
+              <div className="space-y-4">
+                <div className="p-4 bg-orange-600/5 border border-orange-600/10 rounded-xl">
+                  <h4 className="text-sm font-bold text-orange-500 mb-2">Notice</h4>
+                  <p className="text-xs text-gray-500 leading-relaxed">Our support agents are available Mon-Fri 8am-8pm. Response time is typically under 4 hours.</p>
+                </div>
+                <div className="p-4 bg-blue-600/5 border border-blue-600/10 rounded-xl">
+                  <h4 className="text-sm font-bold text-blue-400 mb-2">Account Assistance</h4>
+                  <p className="text-xs text-gray-500 leading-relaxed">For MT5 login issues, please include your MT5 ID in the message for faster resolution.</p>
+                </div>
+              </div>
             </div>
           </div>
+        </div>
+
+        {/* Support Link Footer Removed redundant link */}
+        <div className="p-6 md:px-12 text-center text-gray-600 text-xs mt-12 bg-white/5 py-12">
+          <p>© 2026 Akalamba Asset Management. High-frequency automated trading terminal.</p>
         </div>
       </main>
 

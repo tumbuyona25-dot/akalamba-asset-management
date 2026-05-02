@@ -59,6 +59,16 @@ export interface NewsItem {
   createdAt: Timestamp;
 }
 
+export interface SupportMessage {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  message: string;
+  isAdmin: boolean;
+  createdAt: Timestamp;
+}
+
 export interface SystemSettings {
   ibLink: string;
   supportLink: string;

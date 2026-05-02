@@ -6,13 +6,13 @@ import {
   updateDoc, addDoc, serverTimestamp, increment, writeBatch 
 } from 'firebase/firestore';
 import { 
-  UserProfile, Withdrawal, OperationType, UserRank, NewsItem 
+  UserProfile, Withdrawal, OperationType, UserRank, NewsItem, SupportMessage 
 } from '../types';
 import { handleFirestoreError } from '../lib/firestore-utils';
 import { motion } from 'motion/react';
 import { 
   ArrowLeft, CheckCircle, XCircle, DollarSign, 
-  Users, Newspaper, Send, Search, Loader2 
+  Users, Newspaper, Send, Search, Loader2, MessageSquare, TrendingUp, Trophy
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -26,6 +26,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   
   // Profit Entry State
   const [selectedUserId, setSelectedUserId] = useState('');
+  const [memberSearch, setMemberSearch] = useState('');
   const [profitAmount, setProfitAmount] = useState('');
   const [postingProfit, setPostingProfit] = useState(false);
   
@@ -40,6 +41,12 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   const [newsTitle, setNewsTitle] = useState('');
   const [newsContent, setNewsContent] = useState('');
   const [postingNews, setPostingNews] = useState(false);
+  
+  // Support Terminal State
+  const [supportTickets, setSupportTickets] = useState<SupportMessage[]>([]);
+  const [activeTicketUserId, setActiveTicketUserId] = useState<string | null>(null);
+  const [adminReply, setAdminReply] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -65,9 +72,18 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
       (err) => console.error('Admin Withdrawals sub error:', err)
     );
 
+    const supportUnsub = onSnapshot(
+      query(collection(db, 'support_messages'), orderBy('createdAt', 'desc')),
+      (snap) => {
+        setSupportTickets(snap.docs.map(d => ({ id: d.id, ...d.data() } as SupportMessage)));
+      },
+      (err) => console.error('Admin Support sub error:', err)
+    );
+
     return () => {
       usersUnsub();
       withdrawalsUnsub();
+      supportUnsub();
     };
   }, []);
 
@@ -99,23 +115,32 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
       const memberData = memberSnap.data() as UserProfile;
 
       batch.update(memberRef, {
+        balance: increment(amount), // Distribute profit to user balance
         totalProfit: increment(amount),
         teamVolume: increment(amount),
       });
 
       // 4. Distribute Referral Commissions (Auto)
-      const commissionRates = [0.05, 0.03, 0.02];
       let currentSponsorId = memberData.referrerId;
 
       for (let i = 0; i < 3; i++) {
         if (!currentSponsorId) break;
 
-        const commAmount = amount * commissionRates[i];
         const sponsorRef = doc(db, 'users', currentSponsorId);
         const sponsorSnap = await getDoc(sponsorRef);
         
         if (sponsorSnap.exists()) {
           const sponsorData = sponsorSnap.data() as UserProfile;
+          
+          // Determine percentage based on sponsor's rank
+          let rankPercentage = 0;
+          if (sponsorData.rank === UserRank.PLATINUM) rankPercentage = 0.02; // 2%
+          else if (sponsorData.rank === UserRank.GOLD) rankPercentage = 0.015; // 1.5%
+          else if (sponsorData.rank === UserRank.SILVER) rankPercentage = 0.01; // 1%
+          else if (sponsorData.rank === UserRank.BRONZE) rankPercentage = 0.005; // 0.5%
+          else rankPercentage = 0.002; // Basic/Start: 0.2%
+
+          const commAmount = amount * rankPercentage;
           
           // Log commission
           const commRef = doc(collection(db, 'commissions'));
@@ -134,17 +159,40 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
             teamVolume: increment(amount)
           });
 
-          // Check Rank Upgrade
+          // Check Rank Upgrade & Auto Salary payout
           const newVolume = (sponsorData.teamVolume || 0) + amount;
           let newRank = sponsorData.rank;
+          let salaryBonus = 0;
 
-          if (newVolume >= 100000) newRank = UserRank.PLATINUM;
-          else if (newVolume >= 50000) newRank = UserRank.GOLD;
-          else if (newVolume >= 20000) newRank = UserRank.SILVER;
-          else if (newVolume >= 5000) newRank = UserRank.BRONZE;
+          if (newVolume >= 100000 && sponsorData.rank !== UserRank.PLATINUM) {
+            newRank = UserRank.PLATINUM;
+            salaryBonus = 1500;
+          } else if (newVolume >= 50000 && sponsorData.rank !== UserRank.GOLD) {
+            newRank = UserRank.GOLD;
+            salaryBonus = 700;
+          } else if (newVolume >= 20000 && sponsorData.rank !== UserRank.SILVER) {
+            newRank = UserRank.SILVER;
+            salaryBonus = 300;
+          } else if (newVolume >= 5000 && sponsorData.rank !== UserRank.BRONZE) {
+            newRank = UserRank.BRONZE;
+            salaryBonus = 100;
+          }
 
           if (newRank !== sponsorData.rank) {
-            batch.update(sponsorRef, { rank: newRank });
+            batch.update(sponsorRef, { 
+              rank: newRank,
+              balance: increment(salaryBonus) 
+            });
+            
+            // Record Salary entry
+            const salaryLogRef = doc(collection(db, 'profits'));
+            batch.set(salaryLogRef, {
+              userId: currentSponsorId,
+              amount: salaryBonus,
+              type: 'SALARY',
+              rank: newRank,
+              createdAt: serverTimestamp()
+            });
           }
 
           currentSponsorId = sponsorData.referrerId;
@@ -152,7 +200,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
           break;
         }
       }
-
+      
       await batch.commit();
       setProfitAmount('');
       alert('Profit and commissions distributed successfully!');
@@ -231,6 +279,28 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     }
   };
 
+  const handleSendReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminReply.trim() || !activeTicketUserId) return;
+    setSendingReply(true);
+    try {
+      await addDoc(collection(db, 'support_messages'), {
+        userId: activeTicketUserId,
+        userName: 'Akalamba Admin',
+        userEmail: 'support@akalamba.com',
+        message: adminReply,
+        isAdmin: true,
+        createdAt: serverTimestamp()
+      });
+      setAdminReply('');
+      alert('Reply sent to user!');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'support_messages');
+    } finally {
+      setSendingReply(false);
+    }
+  };
+
   if (loading) return <div className="p-12 text-center text-gray-500 font-sans">Accessing Akalamba Records...</div>;
 
   return (
@@ -275,20 +345,45 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
         <section className="bg-[#0A0A0A] border border-white/5 p-8 rounded-2xl shadow-xl">
           <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-green-500"><DollarSign size={20} /> Record Trading Profit</h2>
           <form onSubmit={handlePostProfit} className="space-y-6">
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Select Member</label>
-              <select 
-                value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-green-500 appearance-none text-sm text-white"
-              >
-                <option value="" className="bg-[#0A0A0A]">Choose a member...</option>
-                {users.map(u => (
-                  <option key={u.uid} value={u.uid} className="bg-[#0A0A0A]">
-                    {u.displayName} ({u.mt5Login || 'No MT5'})
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Member Search (Name/Email/MT5)</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+                  <input 
+                    type="text" 
+                    value={memberSearch} 
+                    onChange={e => setMemberSearch(e.target.value)}
+                    placeholder="Search members..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 outline-none focus:border-green-500 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Select Member Result</label>
+                <select 
+                  value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-green-500 appearance-none text-sm text-white"
+                >
+                  <option value="" className="bg-[#0A0A0A]">Choose a member...</option>
+                  {users
+                    .filter(u => 
+                      !memberSearch || 
+                      u.displayName.toLowerCase().includes(memberSearch.toLowerCase()) ||
+                      u.email.toLowerCase().includes(memberSearch.toLowerCase()) ||
+                      (u.mt5Login || '').toLowerCase().includes(memberSearch.toLowerCase())
+                    )
+                    .map(u => (
+                      <option key={u.uid} value={u.uid} className="bg-[#0A0A0A]">
+                        {u.displayName} ({u.email})
+                      </option>
+                    ))}
+                </select>
+                <p className="mt-2 text-[10px] text-gray-500 italic">Showing {users.filter(u => !memberSearch || u.displayName.toLowerCase().includes(memberSearch.toLowerCase()) || u.email.toLowerCase().includes(memberSearch.toLowerCase()) || (u.mt5Login || '').toLowerCase().includes(memberSearch.toLowerCase())).length} matches</p>
+              </div>
             </div>
+
             <div>
               <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Profit Amount ($)</label>
               <input 
@@ -298,7 +393,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
               />
             </div>
             <button 
-              type="submit" disabled={postingProfit}
+              type="submit" disabled={postingProfit || !selectedUserId}
               className="w-full bg-green-600 py-4 rounded-xl font-bold hover:bg-green-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {postingProfit ? <Loader2 className="animate-spin" /> : 'Distribute Profit & Commissions'}
@@ -310,19 +405,41 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
         <section className="bg-[#0A0A0A] border border-white/5 p-8 rounded-2xl shadow-xl">
           <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-yellow-500"><Search size={20} /> Advanced Member Editor</h2>
           <form onSubmit={handleUpdateMember} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Select Member to Modify</label>
-              <select 
-                value={editingUserId} onChange={e => selectUserForEdit(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-yellow-500 appearance-none text-sm text-white"
-              >
-                <option value="" className="bg-[#0A0A0A]">Select a member...</option>
-                {users.map(u => (
-                  <option key={u.uid} value={u.uid} className="bg-[#0A0A0A]">
-                    {u.displayName} (Bal: ${u.balance.toFixed(2)})
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Editor Search</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
+                  <input 
+                    type="text" 
+                    value={memberSearch} 
+                    onChange={e => setMemberSearch(e.target.value)}
+                    placeholder="Search members to edit..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 outline-none focus:border-yellow-500 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-500 mb-2">Select Member to Modify</label>
+                <select 
+                  value={editingUserId} onChange={e => selectUserForEdit(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-yellow-500 appearance-none text-sm text-white"
+                >
+                  <option value="" className="bg-[#0A0A0A]">Select a member...</option>
+                  {users
+                    .filter(u => 
+                      !memberSearch || 
+                      u.displayName.toLowerCase().includes(memberSearch.toLowerCase()) ||
+                      u.email.toLowerCase().includes(memberSearch.toLowerCase())
+                    )
+                    .map(u => (
+                      <option key={u.uid} value={u.uid} className="bg-[#0A0A0A]">
+                        {u.displayName} (Bal: ${u.balance.toFixed(2)})
+                      </option>
+                    ))}
+                </select>
+              </div>
             </div>
             {editingUserId && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/5">
@@ -401,20 +518,107 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
           </form>
         </section>
 
+        {/* Support Terminal */}
+        <section className="bg-[#0A0A0A] border border-white/5 p-8 rounded-2xl shadow-xl lg:col-span-2">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-pink-400"><MessageSquare size={20} /> Master Support Terminal</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="md:col-span-1 border-r border-white/5 pr-4 space-y-2 overflow-y-auto max-h-[400px]">
+              <h3 className="text-xs font-bold text-gray-500 uppercase mb-4">Recent Inquiries</h3>
+              {Array.from(new Set(supportTickets.map(t => t.userId))).map(uid => {
+                const lastMsg = supportTickets.find(t => t.userId === uid);
+                return (
+                  <button 
+                    key={uid}
+                    onClick={() => setActiveTicketUserId(uid)}
+                    className={`w-full text-left p-3 rounded-xl transition-all ${activeTicketUserId === uid ? 'bg-pink-600/20 border border-pink-600/30' : 'bg-white/5 hover:bg-white/10 border border-transparent'}`}
+                  >
+                    <p className="font-bold text-xs truncate">{lastMsg?.userName}</p>
+                    <p className="text-[10px] text-gray-500 truncate">{lastMsg?.message}</p>
+                  </button>
+                );
+              })}
+              {supportTickets.length === 0 && <div className="text-gray-600 text-xs italic">No tickets found.</div>}
+            </div>
+
+            <div className="md:col-span-2 space-y-4">
+              {activeTicketUserId ? (
+                <>
+                  <div className="bg-white/5 rounded-xl border border-white/5 h-[300px] overflow-y-auto p-4 flex flex-col gap-3">
+                    {supportTickets
+                      .filter(t => t.userId === activeTicketUserId)
+                      .reverse()
+                      .map((msg, i) => (
+                        <div key={i} className={`max-w-[80%] p-3 rounded-xl text-xs ${msg.isAdmin ? 'bg-pink-600/20 text-pink-300 self-end' : 'bg-white/10 text-gray-300 self-start'}`}>
+                          <p className="font-bold mb-1">{msg.isAdmin ? 'Super Admin (You)' : msg.userName}</p>
+                          <p>{msg.message}</p>
+                          <p className="text-[8px] text-gray-500 mt-1">{msg.createdAt instanceof Date ? msg.createdAt.toLocaleString() : msg.createdAt?.toDate?.().toLocaleString() || 'Recent'}</p>
+                        </div>
+                    ))}
+                  </div>
+                  <form onSubmit={handleSendReply} className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={adminReply} 
+                      onChange={e => setAdminReply(e.target.value)}
+                      placeholder="Type official response..."
+                      className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-pink-500 text-sm"
+                    />
+                    <button 
+                      disabled={sendingReply || !adminReply.trim()}
+                      className="bg-pink-600 px-6 rounded-xl hover:bg-pink-500 transition-all disabled:opacity-50 font-bold"
+                    >
+                      {sendingReply ? <Loader2 className="animate-spin" size={18} /> : 'Reply'}
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <div className="h-[350px] flex flex-col items-center justify-center text-gray-600 space-y-4">
+                  <MessageSquare size={48} className="opacity-20" />
+                  <p className="italic">Select a member inquiry to start responding</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
         {/* Members Overview */}
         <section className="bg-[#0A0A0A] border border-white/5 p-8 rounded-2xl shadow-xl">
           <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-purple-400"><Users size={20} /> Members Directory</h2>
-          <div className="space-y-4 overflow-y-auto max-h-[400px]">
+          <div className="space-y-4 overflow-y-auto max-h-[600px] pr-2">
             {users.map(u => (
-              <div key={u.uid} className="flex items-center justify-between p-4 bg-white/5 rounded-xl text-xs border border-white/5">
-                <div>
-                  <p className="font-bold text-sm">{u.displayName}</p>
-                  <p className="text-gray-500">{u.email}</p>
-                  <p className="text-orange-500 mt-1 uppercase text-[10px]">Volume: ${u.teamVolume.toLocaleString()}</p>
+              <div key={u.uid} className="group p-4 bg-white/5 rounded-xl text-xs border border-white/5 hover:border-white/10 transition-all">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="font-bold text-sm">{u.displayName}</p>
+                    <p className="text-gray-500">{u.email}</p>
+                    <p className="text-orange-500 mt-1 uppercase text-[10px]">Volume: ${u.teamVolume.toLocaleString()}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-white font-bold uppercase tracking-widest mb-1">{u.rank}</p>
+                    <p className="text-gray-500 font-bold">Bal: ${u.balance.toFixed(2)}</p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-white font-bold uppercase tracking-widest mb-1">{u.rank}</p>
-                  <p className="text-gray-500 font-bold">Bal: ${u.balance.toFixed(2)}</p>
+                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                  <button 
+                    onClick={() => {
+                      setSelectedUserId(u.uid);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="flex-1 py-2 bg-green-600/20 text-green-500 border border-green-600/30 rounded-lg font-bold hover:bg-green-600 hover:text-white transition-all"
+                  >
+                    Select for Profit
+                  </button>
+                  <button 
+                    onClick={() => {
+                      selectUserForEdit(u.uid);
+                      // Scroll to editor (it's the second section)
+                      const sections = document.querySelectorAll('section');
+                      if (sections[1]) sections[1].scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className="flex-1 py-2 bg-yellow-600/20 text-yellow-500 border border-yellow-600/30 rounded-lg font-bold hover:bg-yellow-600 hover:text-white transition-all"
+                  >
+                    Edit Data
+                  </button>
                 </div>
               </div>
             ))}
