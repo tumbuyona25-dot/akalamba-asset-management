@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with MLM details",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "referralCode": { "type": "string" },
+        "referrerId": { "type": "string" },
+        "mt5Login": { "type": "string" },
+        "investorPassword": { "type": "string" },
+        "balance": { "type": "number" },
+        "totalProfit": { "type": "number" },
+        "teamVolume": { "type": "number" },
+        "rank": { "type": "string", "enum": ["Basic", "Bronze Leader", "Silver Leader", "Gold Leader", "Platinum Leader"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "referralCode"]
+    },
+    "ProfitEntry": {
+      "title": "Profit Entry",
+      "description": "Profit recorded manually by admin for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "companyFee": { "type": "number" },
+        "distributed": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount"]
+    },
+    "Commission": {
+      "title": "Referral Commission",
+      "description": "Commission earned by upline",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "sourceUserId": { "type": "string" },
+        "profitId": { "type": "string" },
+        "amount": { "type": "number" },
+        "level": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "sourceUserId", "amount", "level"]
+    },
+    "Withdrawal": {
+      "title": "Withdrawal Request",
+      "description": "Withdrawal request to USDT BEP20",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "address": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "address", "status"]
+    },
+    "News": {
+      "title": "News Feed",
+      "description": "Platform news and updates",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content"]
+    },
+    "SystemSettings": {
+      "title": "System Settings",
+      "description": "Global configuration",
+      "type": "object",
+      "properties": {
+        "ibLink": { "type": "string" },
+        "supportLink": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "Users collection" },
+    "/profits/{profitId}": { "schema": "ProfitEntry", "description": "Profit entries" },
+    "/commissions/{commissionId}": { "schema": "Commission", "description": "Commissions log" },
+    "/withdrawals/{withdrawalId}": { "schema": "Withdrawal", "description": "Withdrawal requests" },
+    "/news/{newsId}": { "schema": "News", "description": "Public news" },
+    "/settings/global": { "schema": "SystemSettings", "description": "Global settings" },
+    "/admins/{adminId}": { "schema": { "type": "object", "properties": { "role": { "type": "string" } } }, "description": "Admins list" }
+  }
+}
